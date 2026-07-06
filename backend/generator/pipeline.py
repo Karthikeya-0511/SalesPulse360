@@ -72,8 +72,8 @@ print("=" * 60)
 import time
 from datetime import datetime
 
-BATCH_SIZE = 500
-STREAM_DELAY = 5
+BATCH_SIZE = 10
+STREAM_DELAY = 30
 
 """# AWS S3 Integration"""
 
