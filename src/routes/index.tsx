@@ -509,7 +509,7 @@ function Hero({ kpis, batches }: { kpis: { k: string; v: string }[]; batches: nu
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
             </span>
-            Live  · {batches.toLocaleString()} batches streamed
+            Live · {batches.toLocaleString()} batches streamed
           </div>
 
           <h1 className="mt-6 font-display text-5xl font-semibold leading-[1.05] tracking-tight md:text-7xl">
