@@ -4,6 +4,8 @@ import glob
 
 import os
 
+from services.activity_service import add_activity
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 dataset_path = os.path.join(
@@ -277,6 +279,7 @@ def run_copy_into():
 pipeline_state = {
 
     "running": False,
+    "paused": False,
     "current_stage": "Idle",
     "current_batch": 0,
     "uploaded_rows": 0,
@@ -427,6 +430,18 @@ def replay_old_dataset():
 
         for start_index in range(0, len(sales_orders_df), BATCH_SIZE):
 
+            while pipeline_state["paused"]:
+                print("Pipeline Paused...")
+
+                time.sleep(1)
+
+            if not pipeline_state["running"]:
+                print("=" * 60)
+                print("Replay stopped by user")
+                print("=" * 60)
+                pipeline_state["current_stage"] = "Stopped"
+                return
+
             end_index = start_index + BATCH_SIZE
 
             batch_df = sales_orders_df.iloc[start_index:end_index].copy()
@@ -468,12 +483,18 @@ def replay_old_dataset():
 
                 pipeline_state["s3"] = "Healthy"
 
-                time.sleep(5)
+                for _ in range(5):
+                    if not pipeline_state["running"]:
+                        print("Stopped during Snowpipe wait")
+                        pipeline_state["current_stage"] = "Stopped"
+                        return
+                    time.sleep(1)
                 run_copy_into()
                 pipeline_state["snowpipe"] = "Healthy"
                 refresh_staging()
                 pipeline_state["snowflake"] = "Healthy"
                 refresh_analytics()
+                add_activity("Analytics Tables Refreshed")
                 pipeline_state["sql"] = "Healthy"
                 pipeline_state["powerbi"] = "Refreshing"
 
@@ -505,9 +526,16 @@ def replay_old_dataset():
                 f"Batch {batch_number} Uploaded | "
                 f"{pipeline_state['uploaded_rows']} Rows Uploaded"
             )
+
+            add_activity(f"Replay Batch {batch_number} Uploaded")
             pipeline_state["powerbi"] = "Healthy"
 
-            time.sleep(STREAM_DELAY)
+            for _ in range(STREAM_DELAY):
+                if not pipeline_state["running"]:
+                    print("Stopped during replay delay")
+                    pipeline_state["current_stage"] = "Stopped"
+                    return
+                time.sleep(1)
 
         # ------------------------------------
         # Replay Completed
@@ -1308,6 +1336,7 @@ def run_realtime_stream(s3_client_ref, simulate_from=None):
                 pipeline_state["last_upload"] = datetime.now().strftime("%H:%M:%S")
                 pipeline_state["last_file"] = s3_key
                 pipeline_state["uploaded_rows"] += n
+                add_activity(f"Realtime Batch {batch_num} Uploaded")
 
             # Log
                 sample = orders[0]
@@ -1431,6 +1460,7 @@ def run_pipeline():
 
     print("STEP 1")
     verify_s3_connection()
+    add_activity("S3 Connection Verified")
 
     pipeline_state["python"] = "Healthy"
 
@@ -1441,6 +1471,7 @@ def run_pipeline():
 
     print("STEP 2")
     upload_dimension_tables()
+    add_activity("Dimension Tables Uploaded")
 
 
 
@@ -1450,12 +1481,20 @@ def run_pipeline():
     print("STEP 4")
     replay_old_dataset()
 
+    if not pipeline_state["running"]:
+        print("Pipeline terminated by user.")
+        return
+
     print("STEP 5")
     run_backfill(
         s3_client,
         start_year=2020,
         end_year=2025
     )
+
+    if not pipeline_state["running"]:
+        print("Pipeline terminated by user.")
+        return
 
     print("STEP 5")
     run_realtime_stream(s3_client)

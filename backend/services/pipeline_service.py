@@ -1,6 +1,7 @@
 import subprocess
 import os
 import threading
+from services.activity_service import add_activity
 from generator.pipeline import (
     run_pipeline,
     pipeline_state
@@ -15,6 +16,17 @@ def get_pipeline_status():
 
 
 def start_pipeline():
+
+    if pipeline_state["paused"]:
+        print("=" * 60)
+        print("Resuming Pipeline")
+        print("=" * 60)
+
+        pipeline_state["paused"] = False
+        pipeline_state["python"] = "Running"
+        pipeline_state["current_stage"] = "Replay"
+
+        return
 
     global pipeline_thread
 
@@ -37,17 +49,32 @@ def start_pipeline():
     pipeline_thread = threading.Thread(target=run_wrapper, daemon=True)
 
     print("Starting background thread")
+    add_activity("Pipeline Resumed")
     pipeline_thread.start()
     print("Background thread started")
 
 
 def stop_pipeline():
-    global process
 
-    if process:
+    print("=" * 60)
+    print("Stop API called")
+    print("=" * 60)
 
-        process.terminate()
+    pipeline_state["paused"] = True
 
-        process = None
+    pipeline_state["python"] = "Paused"
+    pipeline_state["current_stage"] = "Paused"
 
-    pipeline_state["running"] = False
+    print("Pipeline Paused")
+    pipeline_state["current_stage"] = "Stopped"
+
+    pipeline_state["python"] = "Stopped"
+    pipeline_state["s3"] = "Stopped"
+    pipeline_state["snowpipe"] = "Stopped"
+    pipeline_state["snowflake"] = "Stopped"
+    pipeline_state["sql"] = "Stopped"
+    pipeline_state["powerbi"] = "Stopped"
+
+    print("Pipeline stopped successfully")
+
+    add_activity("Pipeline Paused")

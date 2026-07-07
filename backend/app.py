@@ -7,6 +7,7 @@ from routers.pipeline import router as pipeline_router
 from services.pipeline_service import start_pipeline
 from routers.powerbi import router as powerbi_router
 from routers import insights
+from routers.activity import router as activity_router
 
 
 app = FastAPI(
@@ -66,6 +67,11 @@ app.include_router(
     prefix="/api"
 )
 
+app.include_router(
+    activity_router,
+    prefix="/api",
+    tags=["Activity"]
+)
 
 @app.get("/")
 def home():

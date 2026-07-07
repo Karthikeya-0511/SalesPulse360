@@ -227,14 +227,12 @@ function Index() {
 
     setRefreshing(true);
 
-    await startPipeline();
+    // REMOVE THIS
+    // await startPipeline();
 
     await loadKPIs();
-
     await loadStatus();
-
     await loadPipeline();
-
     await loadInsights();
     await loadActivity();
 
@@ -311,6 +309,22 @@ const loadPipeline = async () => {
     }
 };
 
+const handleStartPipeline = async () => {
+
+    await startPipeline();
+
+    await loadPipeline();
+
+};
+
+const handleStopPipeline = async () => {
+
+    await stopPipeline();
+
+    await loadPipeline();
+
+};
+
 const loadInsights = async () => {
     try {
 
@@ -385,6 +399,8 @@ const loadActivity = async () => {
         refreshing={refreshing}
         status={status}
         pipeline={pipeline}
+        onStart={handleStartPipeline}
+        onStop={handleStopPipeline}
       />
       <TechStack />
       <Features />
@@ -683,6 +699,8 @@ function LivePipeline({
   refreshing,
   status,
   pipeline,
+  onStart,
+  onStop,
 }: {
   filesPerStage: number[];
   lastRefresh: Date;
@@ -690,6 +708,9 @@ function LivePipeline({
   refreshing: boolean;
   status: any;
   pipeline?: any;
+  onStart: () => Promise<void>;
+
+  onStop: () => Promise<void>;
 }) {
   return (
     <section id="pipeline" className="relative py-24">
@@ -711,25 +732,27 @@ function LivePipeline({
               <div className="uppercase tracking-widest">Last Successful Refresh</div>
               <div className="font-mono text-foreground">{lastRefresh.toLocaleTimeString()}</div>
             </div>
-            {/* <button
+              <button
     onClick={async () => {
-        await startPipeline();
-        onRefresh();
+        await onStart();
+        await onRefresh();
     }}
-    className="rounded-xl bg-green-600 px-4 py-2 text-xs font-medium text-white"
+    disabled={refreshing}
+    className="rounded-xl bg-green-600 px-4 py-2 text-xs text-white disabled:opacity-50"
 >
     Start
 </button>
-
-<button
+  <button
     onClick={async () => {
-        await stopPipeline();
-        onRefresh();
+        await onStop();
+        await onRefresh();
     }}
-    className="rounded-xl bg-red-600 px-4 py-2 text-xs font-medium text-white"
+    disabled={refreshing}
+    className="rounded-xl bg-red-600 px-4 py-2 text-xs text-white disabled:opacity-50"
 >
     Stop
-</button> */}
+</button>
+
             <button
               onClick={onRefresh}
               disabled={refreshing}
@@ -743,6 +766,48 @@ function LivePipeline({
 
         <div className="glass-card mt-10 overflow-hidden rounded-3xl p-6 md:p-10">
           {/* Animated flow */}
+          <div className="mb-8 rounded-2xl border border-white/10 bg-white/5 p-5">
+  <div className="flex items-center justify-between">
+
+    <div>
+      <div className="text-sm text-muted-foreground">
+        Current Stage
+      </div>
+
+      <div className="text-xl font-semibold text-white">
+        {pipeline?.current_stage}
+      </div>
+    </div>
+
+    <div className="text-right">
+      <div className="text-sm text-muted-foreground">
+        Batch Progress
+      </div>
+
+      <div className="text-xl font-semibold text-primary">
+        {pipeline?.current_batch} / {pipeline?.total_batches}
+      </div>
+    </div>
+
+  </div>
+
+  <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
+    <div
+      className="h-full rounded-full bg-violet-500 transition-all duration-700"
+      style={{
+        width: `${
+          pipeline?.total_batches
+            ? (pipeline.current_batch / pipeline.total_batches) * 100
+            : 0
+        }%`,
+      }}
+    />
+  </div>
+
+  <div className="mt-2 text-xs text-muted-foreground">
+    {pipeline?.uploaded_rows} Rows Processed
+  </div>
+</div>
           <div className="relative flex flex-wrap items-center justify-between gap-y-8">
             {pipelineComponents.map((s, i) => (
               <div key={s.key} className="relative flex items-center gap-3 md:gap-4">
