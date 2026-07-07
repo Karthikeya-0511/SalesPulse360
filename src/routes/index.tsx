@@ -372,7 +372,14 @@ const loadActivity = async () => {
       <BusinessChallenge />
       <Architecture />
       <LivePipeline
-        filesPerStage={[79, 79, 79, 79, 79, 79]}
+        filesPerStage={[
+    pipeline?.current_batch || 0,
+    pipeline?.current_batch || 0,
+    pipeline?.current_batch || 0,
+    pipeline?.current_batch || 0,
+    pipeline?.current_batch || 0,
+    pipeline?.current_batch || 0,
+]}
         lastRefresh={lastRefresh}
         onRefresh={refresh}
         refreshing={refreshing}
@@ -796,16 +803,29 @@ function LivePipeline({
         Status
       </span>
 
-      <span className="font-medium text-success">
-        {({
-          py: status?.python,
-          s3: status?.aws,
-          pipe: status?.snowpipe,
-          sf: status?.snowflake,
-          sql: "Healthy",
-          pbi: status?.powerbi,
-        }[c.key] || "Healthy")}
-      </span>
+      <span
+  className={`font-medium ${
+    ({
+      py: pipeline?.python,
+      s3: pipeline?.s3,
+      pipe: pipeline?.snowpipe,
+      sf: pipeline?.snowflake,
+      sql: pipeline?.sql,
+      pbi: pipeline?.powerbi,
+    }[c.key] === "Running")
+      ? "text-yellow-400"
+      : "text-success"
+  }`}
+>
+  {({
+    py: pipeline?.python,
+    s3: pipeline?.s3,
+    pipe: pipeline?.snowpipe,
+    sf: pipeline?.snowflake,
+    sql: pipeline?.sql,
+    pbi: pipeline?.powerbi,
+  }[c.key] || "Idle")}
+</span>
     </div>
 
     <div className="flex items-center justify-between text-[10px]">
