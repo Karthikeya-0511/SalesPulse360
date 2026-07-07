@@ -405,6 +405,12 @@ def replay_old_dataset():
     # ------------------------------------
 
     pipeline_state["running"] = True
+    pipeline_state["python"] = "Running"
+    pipeline_state["s3"] = "Waiting"
+    pipeline_state["snowpipe"] = "Waiting"
+    pipeline_state["snowflake"] = "Waiting"
+    pipeline_state["sql"] = "Waiting"
+    pipeline_state["powerbi"] = "Waiting"
     pipeline_state["start_time"] = datetime.now().strftime("%H:%M:%S")
     pipeline_state["current_stage"] = "Replay"
     pipeline_state["replay_completed"] = False
@@ -460,10 +466,16 @@ def replay_old_dataset():
                     s3_key
                 )
 
+                pipeline_state["s3"] = "Healthy"
+
                 time.sleep(5)
                 run_copy_into()
+                pipeline_state["snowpipe"] = "Healthy"
                 refresh_staging()
+                pipeline_state["snowflake"] = "Healthy"
                 refresh_analytics()
+                pipeline_state["sql"] = "Healthy"
+                pipeline_state["powerbi"] = "Refreshing"
 
             except Exception as e:
 
@@ -493,6 +505,7 @@ def replay_old_dataset():
                 f"Batch {batch_number} Uploaded | "
                 f"{pipeline_state['uploaded_rows']} Rows Uploaded"
             )
+            pipeline_state["powerbi"] = "Healthy"
 
             time.sleep(STREAM_DELAY)
 
@@ -1267,11 +1280,29 @@ def run_realtime_stream(s3_client_ref, simulate_from=None):
                 s3_key = upload_batch_to_s3(orders, f"live_{label}", s3_client_ref)
 
                 time.sleep(5)
+                pipeline_state["snowpipe"] = "Running"
+
                 run_copy_into()
+
+                pipeline_state["snowpipe"] = "Healthy"
+
+                pipeline_state["snowflake"] = "Running"
 
                 refresh_staging()
 
+                pipeline_state["snowflake"] = "Healthy"
+
+                pipeline_state["sql"] = "Running"
+
                 refresh_analytics()
+
+                pipeline_state["sql"] = "Healthy"
+
+                pipeline_state["powerbi"] = "Refreshing"
+
+                time.sleep(2)
+
+                pipeline_state["powerbi"] = "Healthy"
 
                 pipeline_state["current_stage"] = "Realtime"
                 pipeline_state["last_upload"] = datetime.now().strftime("%H:%M:%S")
@@ -1289,6 +1320,9 @@ def run_realtime_stream(s3_client_ref, simulate_from=None):
 
             # Advance simulated date
                 current_sim_date += timedelta(hours=random.randint(2, 8))
+
+                pipeline_state["last_upload"] = datetime.now().strftime("%H:%M:%S")
+                pipeline_state["current_stage"] = "Realtime"
 
                 time.sleep(STREAM_DELAY)
 
@@ -1391,11 +1425,17 @@ def run_pipeline():
     print("Starting SalesPulse360 Pipeline...")
     print("=" * 60)
 
+    pipeline_state["running"] = True
+    pipeline_state["python"] = "Running"
+
 
     print("STEP 1")
     verify_s3_connection()
 
+    pipeline_state["python"] = "Healthy"
+
     clear_raw_bucket()
+    pipeline_state["s3"] = "Healthy"
 
     reset_pipeline_tables()
 
