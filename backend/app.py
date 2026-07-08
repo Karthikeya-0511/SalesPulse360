@@ -4,7 +4,7 @@ from routers.kpi import router as kpi_router
 from fastapi.middleware.cors import CORSMiddleware
 from routers.status import router as status_router
 from routers.pipeline import router as pipeline_router
-from services.pipeline_service import start_pipeline
+from services.pipeline_service import resume_if_needed
 from routers.powerbi import router as powerbi_router
 from routers import insights
 from routers.activity import router as activity_router
@@ -20,10 +20,10 @@ async def startup_pipeline():
 
     print("=" * 60)
     print("SalesPulse360 Backend Started")
-    print("Starting Pipeline Automatically...")
+    print("Checking saved pipeline state...")
     print("=" * 60)
 
-    start_pipeline()
+    resume_if_needed()
 
 app.add_middleware(
     CORSMiddleware,

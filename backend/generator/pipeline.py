@@ -5,6 +5,8 @@ import glob
 import os
 
 from services.activity_service import add_activity
+from generator.state_service import save_control_state, load_control_state, mark_bootstrapped
+from database import get_connection
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -1353,6 +1355,13 @@ def run_realtime_stream(s3_client_ref, simulate_from=None):
                 pipeline_state["last_upload"] = datetime.now().strftime("%H:%M:%S")
                 pipeline_state["current_stage"] = "Realtime"
 
+                try:
+                    conn = get_connection()
+                    save_control_state(pipeline_state, conn, _record_counter[0], _order_so_counter[0])
+                    conn.close()
+                except Exception as e:
+                    print("Failed to save control state:", e)
+
                 time.sleep(STREAM_DELAY)
 
             except Exception as e:
@@ -1448,15 +1457,19 @@ print(SNOWPIPE_SQL)
 #  STANDALONE RUN (outside Colab)
 # ─────────────────────────────────────────────
 
-def run_pipeline():
+def bootstrap_pipeline():
+    """
+    Runs ONLY the very first time the Start button is ever clicked.
+    This is the destructive setup: wipes S3, wipes Snowflake tables,
+    replays the historical dataset, backfills, then goes real-time.
+    """
 
     print("=" * 60)
-    print("Starting SalesPulse360 Pipeline...")
+    print("BOOTSTRAP: Starting SalesPulse360 Pipeline for the first time")
     print("=" * 60)
 
     pipeline_state["running"] = True
     pipeline_state["python"] = "Running"
-
 
     print("STEP 1")
     verify_s3_connection()
@@ -1472,8 +1485,6 @@ def run_pipeline():
     print("STEP 2")
     upload_dimension_tables()
     add_activity("Dimension Tables Uploaded")
-
-
 
     print("STEP 3")
     time.sleep(5)
@@ -1496,8 +1507,45 @@ def run_pipeline():
         print("Pipeline terminated by user.")
         return
 
-    print("STEP 5")
+    # mark in Snowflake that bootstrap is done — never run this again
+    conn = get_connection()
+    mark_bootstrapped(conn)
+    conn.close()
+
+    print("STEP 6 — switching to forever real-time mode")
     run_realtime_stream(s3_client)
+
+
+def resume_pipeline(state):
+    """
+    Runs when the app restarts (Render woke up again) and the pipeline
+    had already been bootstrapped before. Does NOT touch S3 or Snowflake
+    tables — just keeps generating new batches from where it left off.
+    """
+
+    print("=" * 60)
+    print("RESUME: Continuing pipeline from saved state")
+    print("=" * 60)
+
+    _record_counter[0] = state["LAST_RECORD_NUMBER"]
+    _order_so_counter[0] = state["LAST_ORDER_NUMBER"] + 1
+
+    pipeline_state["running"] = True
+    pipeline_state["paused"] = False
+    pipeline_state["current_stage"] = "Realtime"
+    pipeline_state["current_batch"] = state["CURRENT_BATCH"]
+    pipeline_state["total_batches"] = state["TOTAL_BATCHES"]
+    pipeline_state["uploaded_rows"] = state["UPLOADED_ROWS"]
+    pipeline_state["realtime_batches"] = state["REALTIME_BATCHES"]
+    pipeline_state["python"] = "Healthy"
+    pipeline_state["s3"] = "Healthy"
+    pipeline_state["snowpipe"] = "Healthy"
+    pipeline_state["snowflake"] = "Healthy"
+    pipeline_state["sql"] = "Healthy"
+    pipeline_state["powerbi"] = "Healthy"
+
+    run_realtime_stream(s3_client)
+
 
 if __name__ == "__main__":
     pass

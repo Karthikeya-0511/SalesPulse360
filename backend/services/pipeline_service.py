@@ -3,9 +3,12 @@ import os
 import threading
 from services.activity_service import add_activity
 from generator.pipeline import (
-    run_pipeline,
+    bootstrap_pipeline,
+    resume_pipeline,
     pipeline_state
 )
+from generator.state_service import load_control_state, save_control_state
+from database import get_connection
 
 
 process = None
@@ -14,45 +17,60 @@ pipeline_thread = None
 def get_pipeline_status():
     return pipeline_state
 
-
 def start_pipeline():
-
-    if pipeline_state["paused"]:
-        print("=" * 60)
-        print("Resuming Pipeline")
-        print("=" * 60)
-
-        pipeline_state["paused"] = False
-        pipeline_state["python"] = "Running"
-        pipeline_state["current_stage"] = "Replay"
-
-        return
 
     global pipeline_thread
 
     print("Start API called")
 
+    conn = get_connection()
+    state = load_control_state(conn)
+
     if pipeline_thread and pipeline_thread.is_alive():
-        print("Pipeline already running")
+        # already running in this process — just make sure it's unpaused
+        pipeline_state["paused"] = False
+        save_control_state(pipeline_state, conn, state["LAST_RECORD_NUMBER"], state["LAST_ORDER_NUMBER"])
+        conn.close()
+        print("Pipeline already running in this process")
         return
+
+    if not state or not state["HAS_BOOTSTRAPPED"]:
+        # very first click ever — do the full destructive one-time setup
+        conn.close()
+
+        def run_wrapper():
+            try:
+                print("bootstrap_pipeline() started")
+                bootstrap_pipeline()
+                print("bootstrap_pipeline() finished")
+            except Exception as e:
+                print("PIPELINE ERROR")
+                print(e)
+
+        pipeline_thread = threading.Thread(target=run_wrapper, daemon=True)
+        add_activity("Pipeline Started (first run)")
+        pipeline_thread.start()
+        print("Bootstrap thread started")
+        return
+
+    # already bootstrapped before — just resume from saved progress
+    pipeline_state["paused"] = False
+    save_control_state(pipeline_state, conn, state["LAST_RECORD_NUMBER"], state["LAST_ORDER_NUMBER"])
+    conn.close()
 
     def run_wrapper():
         try:
-            print("run_pipeline() started")
-            run_pipeline()
-            print("run_pipeline() finished")
+            print("resume_pipeline() started")
+            resume_pipeline(state)
+            print("resume_pipeline() finished")
         except Exception as e:
             print("PIPELINE ERROR")
             print(e)
 
-    # create and start the background thread from within the function
     pipeline_thread = threading.Thread(target=run_wrapper, daemon=True)
-
-    print("Starting background thread")
     add_activity("Pipeline Resumed")
     pipeline_thread.start()
-    print("Background thread started")
-
+    print("Resume thread started")
 
 def stop_pipeline():
 
@@ -78,3 +96,49 @@ def stop_pipeline():
     print("Pipeline stopped successfully")
 
     add_activity("Pipeline Paused")
+
+    try:
+        conn = get_connection()
+        state = load_control_state(conn)
+        save_control_state(
+            pipeline_state, conn,
+            state["LAST_RECORD_NUMBER"] if state else 7991,
+            state["LAST_ORDER_NUMBER"] if state else 8091
+        )
+        conn.close()
+    except Exception as e:
+        print("Failed to save stopped state:", e)
+
+def resume_if_needed():
+    """
+    Called once when the server boots. Does NOT auto-start on a brand new
+    deploy. Only resumes automatically if the pipeline was bootstrapped
+    before AND was left running (not stopped) when the server went down.
+    """
+    global pipeline_thread
+
+    conn = get_connection()
+    state = load_control_state(conn)
+    conn.close()
+
+    if not state or not state["HAS_BOOTSTRAPPED"]:
+        print("No previous run found. Waiting for user to click Start.")
+        return
+
+    if state["IS_PAUSED"]:
+        print("Pipeline was stopped. Waiting for user to click Start.")
+        pipeline_state["paused"] = True
+        pipeline_state["running"] = False
+        pipeline_state["current_stage"] = "Stopped"
+        return
+
+    print("Pipeline was running before restart. Resuming automatically.")
+
+    def run_wrapper():
+        try:
+            resume_pipeline(state)
+        except Exception as e:
+            print("PIPELINE ERROR", e)
+
+    pipeline_thread = threading.Thread(target=run_wrapper, daemon=True)
+    pipeline_thread.start()
