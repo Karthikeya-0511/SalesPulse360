@@ -4,12 +4,8 @@ import threading
 from services.activity_service import add_activity
 from generator.pipeline import (
     run_pipeline,
-    pipeline_state,
-    save_pipeline_state,
-    run_realtime_stream,
-    s3_client,
+    pipeline_state
 )
- 
 
 
 process = None
@@ -18,34 +14,8 @@ pipeline_thread = None
 def get_pipeline_status():
     return pipeline_state
 
-def run_full_historical_load():
-    global pipeline_thread
-
-    def wrapper():
-        from generator.pipeline import (
-            replay_old_dataset, run_backfill, s3_client,
-            verify_s3_connection, clear_raw_bucket, reset_pipeline_tables,
-            upload_dimension_tables,
-        )
-        from services.activity_service import add_activity
-        import time
-
-        verify_s3_connection()
-        add_activity("S3 Connection Verified")
-        clear_raw_bucket()
-        reset_pipeline_tables()
-        upload_dimension_tables()
-        add_activity("Dimension Tables Uploaded")
-        time.sleep(5)
-        replay_old_dataset()
-        run_backfill(s3_client, start_year=2020, end_year=2025)
-
-    pipeline_thread = threading.Thread(target=wrapper, daemon=True)
-    pipeline_thread.start()
 
 def start_pipeline():
-
-    global pipeline_thread
 
     if pipeline_state["paused"]:
         print("=" * 60)
@@ -53,24 +23,12 @@ def start_pipeline():
         print("=" * 60)
 
         pipeline_state["paused"] = False
-        pipeline_state["running"] = True
         pipeline_state["python"] = "Running"
+        pipeline_state["current_stage"] = "Replay"
 
-        if not (pipeline_thread and pipeline_thread.is_alive()):
-            def resume_wrapper():
-                try:
-                    print("Resuming realtime stream...")
-                    run_realtime_stream(s3_client)
-                except Exception as e:
-                    print("RESUME ERROR")
-                    print(e)
-
-            pipeline_thread = threading.Thread(target=resume_wrapper, daemon=True)
-            pipeline_thread.start()
-            print("Resumed background thread started")
-
-        add_activity("Pipeline Resumed")
         return
+
+    global pipeline_thread
 
     print("Start API called")
 
@@ -87,10 +45,11 @@ def start_pipeline():
             print("PIPELINE ERROR")
             print(e)
 
+    # create and start the background thread from within the function
     pipeline_thread = threading.Thread(target=run_wrapper, daemon=True)
 
     print("Starting background thread")
-    add_activity("Pipeline Started")
+    add_activity("Pipeline Resumed")
     pipeline_thread.start()
     print("Background thread started")
 
@@ -102,7 +61,6 @@ def stop_pipeline():
     print("=" * 60)
 
     pipeline_state["paused"] = True
-    pipeline_state["running"] = False
 
     pipeline_state["python"] = "Paused"
     pipeline_state["current_stage"] = "Paused"
@@ -116,8 +74,6 @@ def stop_pipeline():
     pipeline_state["snowflake"] = "Stopped"
     pipeline_state["sql"] = "Stopped"
     pipeline_state["powerbi"] = "Stopped"
-
-    save_pipeline_state()
 
     print("Pipeline stopped successfully")
 

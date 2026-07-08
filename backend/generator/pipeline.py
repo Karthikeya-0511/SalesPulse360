@@ -292,57 +292,6 @@ pipeline_state = {
     "total_batches": 0
 }
 
-def save_pipeline_state():
-    cursor = snowflake_connection.cursor()
-    try:
-        cursor.execute("DELETE FROM ANALYTICS_SCHEMA.PIPELINE_STATE")
-        cursor.execute("""
-            INSERT INTO ANALYTICS_SCHEMA.PIPELINE_STATE
-            (CURRENT_BATCH, TOTAL_BATCHES, UPLOADED_ROWS, RUNNING, PAUSED,
-             CURRENT_STAGE, LAST_UPLOAD, LAST_FILE, REALTIME_BATCHES)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            pipeline_state["current_batch"],
-            pipeline_state["total_batches"],
-            pipeline_state["uploaded_rows"],
-            pipeline_state["running"],
-            pipeline_state["paused"],
-            pipeline_state["current_stage"],
-            pipeline_state["last_upload"],
-            pipeline_state["last_file"],
-            pipeline_state["realtime_batches"],
-        ))
-    except Exception as e:
-        print("Failed to save pipeline state:", e)
-    finally:
-        cursor.close()
-
-
-def load_pipeline_state():
-    cursor = snowflake_connection.cursor()
-    try:
-        cursor.execute("SELECT * FROM ANALYTICS_SCHEMA.PIPELINE_STATE LIMIT 1")
-        row = cursor.fetchone()
-        if row:
-            pipeline_state["current_batch"] = row[1] or 0
-            pipeline_state["total_batches"] = row[2] or 0
-            pipeline_state["uploaded_rows"] = row[3] or 0
-            pipeline_state["running"] = False        # always boot paused, never auto-run
-            pipeline_state["paused"] = row[5] if row[5] is not None else True
-            pipeline_state["current_stage"] = row[6] or "Stopped"
-            pipeline_state["last_upload"] = row[7] or ""
-            pipeline_state["last_file"] = row[8] or ""
-            pipeline_state["realtime_batches"] = row[9] or 0
-            print("Pipeline state restored from Snowflake:", pipeline_state)
-    except Exception as e:
-        print("No previous pipeline state found or failed to load:", e)
-    finally:
-        cursor.close()
-
-
-# Restore last known state immediately when this module loads (i.e. on backend boot)
-load_pipeline_state()
-
 
 # ============================================
 # VERIFY S3 CONNECTION
@@ -580,7 +529,6 @@ def replay_old_dataset():
 
             add_activity(f"Replay Batch {batch_number} Uploaded")
             pipeline_state["powerbi"] = "Healthy"
-            save_pipeline_state() 
 
             for _ in range(STREAM_DELAY):
                 if not pipeline_state["running"]:
@@ -1349,21 +1297,15 @@ def run_realtime_stream(s3_client_ref, simulate_from=None):
                 batch_num  += 1
                 pipeline_state["realtime_batches"] += 1
                 pipeline_state["current_batch"] += 1
-                pipeline_state["total_batches"] = pipeline_state["current_batch"]
                 n           = random.randint(*ORDERS_PER_BATCH)
                 now_str     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                 # Generate orders for current simulated date
                 orders = [generate_single_order(current_sim_date) for _ in range(n)]
 
-                pipeline_state["python"] = "Healthy"          # <-- ADDED
-                pipeline_state["s3"] = "Running"  
-
                 # Upload to S3
                 label  = datetime.now().strftime("%Y%m%d_%H%M%S")
                 s3_key = upload_batch_to_s3(orders, f"live_{label}", s3_client_ref)
-
-                pipeline_state["s3"] = "Healthy"  
 
                 time.sleep(5)
                 pipeline_state["snowpipe"] = "Running"
@@ -1395,7 +1337,6 @@ def run_realtime_stream(s3_client_ref, simulate_from=None):
                 pipeline_state["last_file"] = s3_key
                 pipeline_state["uploaded_rows"] += n
                 add_activity(f"Realtime Batch {batch_num} Uploaded")
-                save_pipeline_state()
 
             # Log
                 sample = orders[0]
@@ -1508,6 +1449,7 @@ print(SNOWPIPE_SQL)
 # ─────────────────────────────────────────────
 
 def run_pipeline():
+
     print("=" * 60)
     print("Starting SalesPulse360 Pipeline...")
     print("=" * 60)
@@ -1515,39 +1457,47 @@ def run_pipeline():
     pipeline_state["running"] = True
     pipeline_state["python"] = "Running"
 
-    cursor = snowflake_connection.cursor()
-    cursor.execute("SELECT COUNT(*) FROM ANALYTICS_SCHEMA.SALES_ANALYTICS_MASTER")
-    existing_rows = cursor.fetchone()[0]
-    cursor.close()
 
-    if existing_rows == 0:
-        replay_old_dataset()      # <- your original Excel data (2017-2019 range )
-        run_backfill(s3_client, start_year=2020, end_year=2025)         # <- generated 2020-2025 data
-    else:
-        run_realtime_stream(s3_client) 
-        # First-ever run: full reset + historical replay
-        verify_s3_connection()
-        add_activity("S3 Connection Verified")
-        pipeline_state["python"] = "Healthy"
-        clear_raw_bucket()
-        pipeline_state["s3"] = "Healthy"
-        reset_pipeline_tables()
-        upload_dimension_tables()
-        add_activity("Dimension Tables Uploaded")
-        time.sleep(5)
-        replay_old_dataset()
+    print("STEP 1")
+    verify_s3_connection()
+    add_activity("S3 Connection Verified")
 
-        if not pipeline_state["running"]:
-            print("Pipeline terminated by user.")
-            return
+    pipeline_state["python"] = "Healthy"
 
-        run_backfill(s3_client, start_year=2020, end_year=2025)
+    clear_raw_bucket()
+    pipeline_state["s3"] = "Healthy"
 
-        if not pipeline_state["running"]:
-            print("Pipeline terminated by user.")
-            return
-        else:
-            print("Existing data found — skipping reset, resuming realtime stream.")
-            pipeline_state["current_stage"] = "Realtime"
+    reset_pipeline_tables()
 
+    print("STEP 2")
+    upload_dimension_tables()
+    add_activity("Dimension Tables Uploaded")
+
+
+
+    print("STEP 3")
+    time.sleep(5)
+
+    print("STEP 4")
+    replay_old_dataset()
+
+    if not pipeline_state["running"]:
+        print("Pipeline terminated by user.")
+        return
+
+    print("STEP 5")
+    run_backfill(
+        s3_client,
+        start_year=2020,
+        end_year=2025
+    )
+
+    if not pipeline_state["running"]:
+        print("Pipeline terminated by user.")
+        return
+
+    print("STEP 5")
     run_realtime_stream(s3_client)
+
+if __name__ == "__main__":
+    pass
