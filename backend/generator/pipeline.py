@@ -1521,6 +1521,10 @@ def run_pipeline():
     cursor.close()
 
     if existing_rows == 0:
+        replay_old_dataset()      # <- your original Excel data (2017-2019 range )
+        run_backfill(s3_client, start_year=2020, end_year=2025)         # <- generated 2020-2025 data
+    else:
+        run_realtime_stream(s3_client) 
         # First-ever run: full reset + historical replay
         verify_s3_connection()
         add_activity("S3 Connection Verified")
@@ -1542,8 +1546,8 @@ def run_pipeline():
         if not pipeline_state["running"]:
             print("Pipeline terminated by user.")
             return
-    else:
-        print("Existing data found — skipping reset, resuming realtime stream.")
-        pipeline_state["current_stage"] = "Realtime"
+        else:
+            print("Existing data found — skipping reset, resuming realtime stream.")
+            pipeline_state["current_stage"] = "Realtime"
 
     run_realtime_stream(s3_client)

@@ -5,8 +5,15 @@ from services.pipeline_service import (
     stop_pipeline,
     get_pipeline_status
 )
-
+from services.pipeline_service import run_full_historical_load
 router = APIRouter()
+
+
+
+@router.post("/pipeline/backfill")
+def backfill():
+    run_full_historical_load()
+    return {"message": "Historical replay + backfill started"}
 
 
 @router.post("/pipeline/start")

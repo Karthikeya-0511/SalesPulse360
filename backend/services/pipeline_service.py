@@ -18,6 +18,31 @@ pipeline_thread = None
 def get_pipeline_status():
     return pipeline_state
 
+def run_full_historical_load():
+    global pipeline_thread
+
+    def wrapper():
+        from generator.pipeline import (
+            replay_old_dataset, run_backfill, s3_client,
+            verify_s3_connection, clear_raw_bucket, reset_pipeline_tables,
+            upload_dimension_tables,
+        )
+        from services.activity_service import add_activity
+        import time
+
+        verify_s3_connection()
+        add_activity("S3 Connection Verified")
+        clear_raw_bucket()
+        reset_pipeline_tables()
+        upload_dimension_tables()
+        add_activity("Dimension Tables Uploaded")
+        time.sleep(5)
+        replay_old_dataset()
+        run_backfill(s3_client, start_year=2020, end_year=2025)
+
+    pipeline_thread = threading.Thread(target=wrapper, daemon=True)
+    pipeline_thread.start()
+
 def start_pipeline():
 
     global pipeline_thread
