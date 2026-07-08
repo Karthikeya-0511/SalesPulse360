@@ -4,8 +4,12 @@ import threading
 from services.activity_service import add_activity
 from generator.pipeline import (
     run_pipeline,
-    pipeline_state
+    pipeline_state,
+    save_pipeline_state,
+    run_realtime_stream,
+    s3_client,
 )
+ 
 
 
 process = None
@@ -14,8 +18,9 @@ pipeline_thread = None
 def get_pipeline_status():
     return pipeline_state
 
-
 def start_pipeline():
+
+    global pipeline_thread
 
     if pipeline_state["paused"]:
         print("=" * 60)
@@ -23,12 +28,24 @@ def start_pipeline():
         print("=" * 60)
 
         pipeline_state["paused"] = False
+        pipeline_state["running"] = True
         pipeline_state["python"] = "Running"
-        pipeline_state["current_stage"] = "Replay"
 
+        if not (pipeline_thread and pipeline_thread.is_alive()):
+            def resume_wrapper():
+                try:
+                    print("Resuming realtime stream...")
+                    run_realtime_stream(s3_client)
+                except Exception as e:
+                    print("RESUME ERROR")
+                    print(e)
+
+            pipeline_thread = threading.Thread(target=resume_wrapper, daemon=True)
+            pipeline_thread.start()
+            print("Resumed background thread started")
+
+        add_activity("Pipeline Resumed")
         return
-
-    global pipeline_thread
 
     print("Start API called")
 
@@ -45,11 +62,10 @@ def start_pipeline():
             print("PIPELINE ERROR")
             print(e)
 
-    # create and start the background thread from within the function
     pipeline_thread = threading.Thread(target=run_wrapper, daemon=True)
 
     print("Starting background thread")
-    add_activity("Pipeline Resumed")
+    add_activity("Pipeline Started")
     pipeline_thread.start()
     print("Background thread started")
 
@@ -61,6 +77,7 @@ def stop_pipeline():
     print("=" * 60)
 
     pipeline_state["paused"] = True
+    pipeline_state["running"] = False
 
     pipeline_state["python"] = "Paused"
     pipeline_state["current_stage"] = "Paused"
@@ -74,6 +91,8 @@ def stop_pipeline():
     pipeline_state["snowflake"] = "Stopped"
     pipeline_state["sql"] = "Stopped"
     pipeline_state["powerbi"] = "Stopped"
+
+    save_pipeline_state()
 
     print("Pipeline stopped successfully")
 
