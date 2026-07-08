@@ -15,15 +15,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-@app.on_event("startup")
-async def startup_pipeline():
-
-    print("=" * 60)
-    print("SalesPulse360 Backend Started")
-    print("Starting Pipeline Automatically...")
-    print("=" * 60)
-
-    start_pipeline()
 
 app.add_middleware(
     CORSMiddleware,

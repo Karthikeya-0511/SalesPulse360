@@ -1449,7 +1449,6 @@ print(SNOWPIPE_SQL)
 # ─────────────────────────────────────────────
 
 def run_pipeline():
-
     print("=" * 60)
     print("Starting SalesPulse360 Pipeline...")
     print("=" * 60)
@@ -1457,47 +1456,35 @@ def run_pipeline():
     pipeline_state["running"] = True
     pipeline_state["python"] = "Running"
 
+    cursor = snowflake_connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM ANALYTICS_SCHEMA.SALES_ANALYTICS_MASTER")
+    existing_rows = cursor.fetchone()[0]
+    cursor.close()
 
-    print("STEP 1")
-    verify_s3_connection()
-    add_activity("S3 Connection Verified")
+    if existing_rows == 0:
+        # First-ever run: full reset + historical replay
+        verify_s3_connection()
+        add_activity("S3 Connection Verified")
+        pipeline_state["python"] = "Healthy"
+        clear_raw_bucket()
+        pipeline_state["s3"] = "Healthy"
+        reset_pipeline_tables()
+        upload_dimension_tables()
+        add_activity("Dimension Tables Uploaded")
+        time.sleep(5)
+        replay_old_dataset()
 
-    pipeline_state["python"] = "Healthy"
+        if not pipeline_state["running"]:
+            print("Pipeline terminated by user.")
+            return
 
-    clear_raw_bucket()
-    pipeline_state["s3"] = "Healthy"
+        run_backfill(s3_client, start_year=2020, end_year=2025)
 
-    reset_pipeline_tables()
+        if not pipeline_state["running"]:
+            print("Pipeline terminated by user.")
+            return
+    else:
+        print("Existing data found — skipping reset, resuming realtime stream.")
+        pipeline_state["current_stage"] = "Realtime"
 
-    print("STEP 2")
-    upload_dimension_tables()
-    add_activity("Dimension Tables Uploaded")
-
-
-
-    print("STEP 3")
-    time.sleep(5)
-
-    print("STEP 4")
-    replay_old_dataset()
-
-    if not pipeline_state["running"]:
-        print("Pipeline terminated by user.")
-        return
-
-    print("STEP 5")
-    run_backfill(
-        s3_client,
-        start_year=2020,
-        end_year=2025
-    )
-
-    if not pipeline_state["running"]:
-        print("Pipeline terminated by user.")
-        return
-
-    print("STEP 5")
     run_realtime_stream(s3_client)
-
-if __name__ == "__main__":
-    pass
