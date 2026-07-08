@@ -8,7 +8,9 @@ export default function PowerBIClient() {
       const powerbi = await import("powerbi-client");
       const { models } = powerbi;
 
-      const response = await fetch("http://127.0.0.1:8000/api/powerbi/embed");
+      const response = await fetch(
+    "https://salespulse360-backend.onrender.com/api/powerbi/embed"
+);
       const data = await response.json();
 
       const report = {
