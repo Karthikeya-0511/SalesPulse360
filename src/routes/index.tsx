@@ -1115,7 +1115,7 @@ function PowerBIEmbed({ lastRefresh }: { lastRefresh: Date }) {
                     Connected to ANALYTICS_SCHEMA via Power BI
                   </div>
                   <a
-    href="https://app.powerbi.com/reportEmbed?reportId=dacb34a4-bad2-42e6-9096-694568d872c5&autoAuth=true&ctid=92f1794f-61ac-499d-9c90-27fee1dd2cd9"
+    href="/report"
     target="_blank"
     rel="noopener noreferrer"
     className="inline-flex items-center gap-1.5 rounded-full bg-violet-gradient px-4 py-2 text-xs font-medium text-primary-foreground shadow-glow hover:brightness-110"
