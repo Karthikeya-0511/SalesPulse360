@@ -55,3 +55,18 @@ def load_control_state(conn):
         return dict(zip(cols, row))
     finally:
         cursor.close()
+
+def save_bootstrap_progress(conn, phase, replay_next_index=None, backfill_year=None, backfill_month=None):
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE ANALYTICS_SCHEMA.PIPELINE_CONTROL_STATE
+            SET BOOTSTRAP_PHASE = %s,
+                REPLAY_NEXT_INDEX = COALESCE(%s, REPLAY_NEXT_INDEX),
+                BACKFILL_YEAR = COALESCE(%s, BACKFILL_YEAR),
+                BACKFILL_MONTH = COALESCE(%s, BACKFILL_MONTH)
+            WHERE ID = 1
+        """, (phase, replay_next_index, backfill_year, backfill_month))
+        conn.commit()
+    finally:
+        cursor.close()

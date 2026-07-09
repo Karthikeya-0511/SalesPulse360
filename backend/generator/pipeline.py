@@ -5,7 +5,7 @@ import glob
 import os
 
 from services.activity_service import add_activity
-from generator.state_service import save_control_state, load_control_state, mark_bootstrapped
+from generator.state_service import save_control_state, load_control_state, mark_bootstrapped, save_bootstrap_progress
 from database import get_connection
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -401,7 +401,7 @@ def refresh_analytics():
         cursor.close()
 
 
-def replay_old_dataset():
+def replay_old_dataset(start_from_index=0):
 
     global pipeline_state
 
@@ -430,7 +430,7 @@ def replay_old_dataset():
         # Replay Historical Dataset
         # ------------------------------------
 
-        for start_index in range(0, len(sales_orders_df), BATCH_SIZE):
+        for start_index in range(start_from_index, len(sales_orders_df), BATCH_SIZE):
 
             while pipeline_state["paused"]:
                 print("Pipeline Paused...")
@@ -531,6 +531,13 @@ def replay_old_dataset():
 
             add_activity(f"Replay Batch {batch_number} Uploaded")
             pipeline_state["powerbi"] = "Healthy"
+
+            try:
+                conn = get_connection()
+                save_bootstrap_progress(conn, "REPLAY", replay_next_index=end_index)
+                conn.close()
+            except Exception as e:
+                print("Failed to save replay checkpoint:", e)
 
             for _ in range(STREAM_DELAY):
                 if not pipeline_state["running"]:
@@ -1193,20 +1200,43 @@ def upload_batch_to_s3(orders, batch_label, s3_client_ref):
 #  into Snowflake before going live
 # ─────────────────────────────────────────────
 
-def run_backfill(s3_client_ref, start_year=2020, end_year=2025):
+def run_backfill(s3_client_ref, start_year=2020, end_year=2025, resume_year=None, resume_month=None):
   _record_counter[0] = LAST_RECORD_NUMBER
   _order_so_counter[0] = LAST_ORDER_NUM + 1
   print("=" * 60)
-  print("  CAMPFLY BACKFILL — 2020 to 2022")
+  print("  CAMPFLY BACKFILL")
   print(f"  Continuing from record #{LAST_RECORD_NUMBER + 1}")
   print("=" * 60)
   total_uploaded = 0
   carry_forward = []
   batch_no = 1
 
+  begin_year = resume_year or start_year
+  begin_month = resume_month or 1
+
   for year in range(start_year, end_year + 1):
     print(f"\n── Year {year} ──")
     for month in range(1, 13):
+
+      if year < begin_year or (year == begin_year and month < begin_month):
+          continue
+
+      if not pipeline_state["running"]:
+          print("Backfill stopped by user")
+          return
+
+      while pipeline_state["paused"]:
+          print("Backfill Paused...")
+          time.sleep(1)
+
+      try:
+          conn = get_connection()
+          save_bootstrap_progress(conn, "BACKFILL", backfill_year=year, backfill_month=month)
+          conn.close()
+      except Exception as e:
+          print("Failed to save backfill checkpoint:", e)
+
+      orders = generate_month(year, month)
       orders = generate_month(year, month)
       label  = f"{year}_{str(month).zfill(2)}"
 
@@ -1295,6 +1325,9 @@ def run_realtime_stream(s3_client_ref, simulate_from=None):
 
     try:
         while pipeline_state["running"]:
+            while pipeline_state["paused"]:
+                print("Realtime Paused...")
+                time.sleep(1)
             try:
                 batch_num  += 1
                 pipeline_state["realtime_batches"] += 1
@@ -1459,60 +1492,92 @@ print(SNOWPIPE_SQL)
 
 def bootstrap_pipeline():
     """
-    Runs ONLY the very first time the Start button is ever clicked.
-    This is the destructive setup: wipes S3, wipes Snowflake tables,
-    replays the historical dataset, backfills, then goes real-time.
+    Runs the destructive one-time setup ONLY the very first time it's ever
+    called (phase == NOT_STARTED). If it's called again after being
+    interrupted (Render restart mid-replay or mid-backfill), it picks up
+    exactly where it left off using the saved phase/checkpoint — it never
+    wipes S3 or Snowflake a second time.
     """
 
     print("=" * 60)
-    print("BOOTSTRAP: Starting SalesPulse360 Pipeline for the first time")
+    print("BOOTSTRAP: Starting or resuming pipeline setup")
     print("=" * 60)
 
     pipeline_state["running"] = True
     pipeline_state["python"] = "Running"
 
-    print("STEP 1")
-    verify_s3_connection()
-    add_activity("S3 Connection Verified")
-
-    pipeline_state["python"] = "Healthy"
-
-    clear_raw_bucket()
-    pipeline_state["s3"] = "Healthy"
-
-    reset_pipeline_tables()
-
-    print("STEP 2")
-    upload_dimension_tables()
-    add_activity("Dimension Tables Uploaded")
-
-    print("STEP 3")
-    time.sleep(5)
-
-    print("STEP 4")
-    replay_old_dataset()
-
-    if not pipeline_state["running"]:
-        print("Pipeline terminated by user.")
-        return
-
-    print("STEP 5")
-    run_backfill(
-        s3_client,
-        start_year=2020,
-        end_year=2025
-    )
-
-    if not pipeline_state["running"]:
-        print("Pipeline terminated by user.")
-        return
-
-    # mark in Snowflake that bootstrap is done — never run this again
     conn = get_connection()
-    mark_bootstrapped(conn)
+    state = load_control_state(conn)
     conn.close()
 
-    print("STEP 6 — switching to forever real-time mode")
+    phase = (state.get("BOOTSTRAP_PHASE") if state else None) or "NOT_STARTED"
+
+    if phase == "NOT_STARTED":
+        print("PHASE: fresh start — wiping and setting up from zero")
+
+        verify_s3_connection()
+        add_activity("S3 Connection Verified")
+        pipeline_state["python"] = "Healthy"
+
+        clear_raw_bucket()
+        pipeline_state["s3"] = "Healthy"
+
+        reset_pipeline_tables()
+
+        upload_dimension_tables()
+        add_activity("Dimension Tables Uploaded")
+
+        time.sleep(5)
+
+        conn = get_connection()
+        save_bootstrap_progress(conn, "REPLAY", replay_next_index=0)
+        conn.close()
+        phase = "REPLAY"
+
+    if phase == "REPLAY":
+        conn = get_connection()
+        state = load_control_state(conn)
+        conn.close()
+        resume_index = state.get("REPLAY_NEXT_INDEX") or 0
+
+        print(f"PHASE: replay — resuming from row {resume_index}")
+        replay_old_dataset(start_from_index=resume_index)
+
+        if not pipeline_state["running"]:
+            print("Pipeline terminated by user during replay.")
+            return
+
+        conn = get_connection()
+        save_bootstrap_progress(conn, "BACKFILL", backfill_year=2020, backfill_month=1)
+        conn.close()
+        phase = "BACKFILL"
+
+    if phase == "BACKFILL":
+        conn = get_connection()
+        state = load_control_state(conn)
+        conn.close()
+        resume_year = state.get("BACKFILL_YEAR") or 2020
+        resume_month = state.get("BACKFILL_MONTH") or 1
+
+        print(f"PHASE: backfill — resuming from {resume_year}-{resume_month}")
+        run_backfill(
+            s3_client,
+            start_year=2020,
+            end_year=2025,
+            resume_year=resume_year,
+            resume_month=resume_month
+        )
+
+        if not pipeline_state["running"]:
+            print("Pipeline terminated by user during backfill.")
+            return
+
+        conn = get_connection()
+        mark_bootstrapped(conn)
+        save_bootstrap_progress(conn, "DONE")
+        conn.close()
+
+    print("BOOTSTRAP COMPLETE — switching to forever real-time mode")
     run_realtime_stream(s3_client)
 
 
