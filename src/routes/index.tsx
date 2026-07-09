@@ -404,6 +404,7 @@ const loadActivity = async () => {
       />
       <TechStack />
       <Features />
+      <DashboardPreview />
       <PowerBIEmbed lastRefresh={lastRefresh} />
       <Footer />
     </div>
