@@ -163,25 +163,31 @@ def clear_raw_bucket():
 
 import snowflake.connector
 
-snowflake_connection = snowflake.connector.connect(
+def create_snowflake_connection():
+    return snowflake.connector.connect(
+        user=os.getenv("SNOWFLAKE_USER"),
+        password=os.getenv("SNOWFLAKE_PASSWORD"),
+        account=os.getenv("SNOWFLAKE_ACCOUNT"),
+        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
+        database=os.getenv("SNOWFLAKE_DATABASE"),
+        schema=os.getenv("SNOWFLAKE_SCHEMA"),
+        client_session_keep_alive=True
+    )
 
-    user=os.getenv("SNOWFLAKE_USER"),
+snowflake_connection = create_snowflake_connection()
 
-    password=os.getenv("SNOWFLAKE_PASSWORD"),
-
-    account=os.getenv("SNOWFLAKE_ACCOUNT"),
-
-    warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
-
-    database=os.getenv("SNOWFLAKE_DATABASE"),
-
-    schema=os.getenv("SNOWFLAKE_SCHEMA")
-
-)
+def get_snowflake_cursor():
+    global snowflake_connection
+    try:
+        return snowflake_connection.cursor()
+    except Exception:
+        print("Snowflake connection stale — reconnecting...")
+        snowflake_connection = create_snowflake_connection()
+        return snowflake_connection.cursor()
 
 def reset_pipeline_tables():
 
-    cursor = snowflake_connection.cursor()
+    cursor = get_snowflake_cursor()
 
     try:
 
@@ -250,7 +256,7 @@ def reset_pipeline_tables():
 
 def run_copy_into():
 
-    cursor = snowflake_connection.cursor()
+    cursor = get_snowflake_cursor()
 
     try:
 
@@ -323,7 +329,7 @@ def verify_s3_connection():
 
 def refresh_staging():
 
-    cursor = snowflake_connection.cursor()
+    cursor = get_snowflake_cursor()
 
     try:
 
@@ -382,7 +388,7 @@ def refresh_staging():
 
 def refresh_analytics():
 
-    cursor = snowflake_connection.cursor()
+    cursor = get_snowflake_cursor()
 
     try:
 
@@ -996,7 +1002,7 @@ def generate_total_cost(unit_price, quantity, order_date):
     else:
         cost_ratio = random.uniform(0.58,0.75)
 
-    return round(unit_price * quantity * cost_ratio,3)
+    return round(unit_price  * cost_ratio,3)
 
 
 def get_monthly_order_target(year, month, base=222):
@@ -1236,7 +1242,6 @@ def run_backfill(s3_client_ref, start_year=2020, end_year=2025, resume_year=None
       except Exception as e:
           print("Failed to save backfill checkpoint:", e)
 
-      orders = generate_month(year, month)
       orders = generate_month(year, month)
       label  = f"{year}_{str(month).zfill(2)}"
 
