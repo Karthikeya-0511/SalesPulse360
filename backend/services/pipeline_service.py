@@ -15,7 +15,24 @@ process = None
 pipeline_thread = None
 
 def get_pipeline_status():
-    return pipeline_state
+    status = dict(pipeline_state)
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM RAW_SCHEMA.RAW_SALES_ORDERS")
+        real_row_count = cursor.fetchone()[0]
+        cursor.close()
+        conn.close()
+
+        status["real_uploaded_rows"] = real_row_count
+        status["real_batches"] = real_row_count // 10
+    except Exception as e:
+        print("Failed to fetch real row count:", e)
+        status["real_uploaded_rows"] = None
+        status["real_batches"] = None
+
+    return status
 
 def start_pipeline():
 

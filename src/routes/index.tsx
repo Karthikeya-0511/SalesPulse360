@@ -786,7 +786,7 @@ function LivePipeline({
       </div>
 
       <div className="text-xl font-semibold text-primary">
-        {pipeline?.current_batch} / {pipeline?.total_batches}
+        {pipeline?.real_batches ?? pipeline?.current_batch} / {pipeline?.total_batches}
       </div>
     </div>
 
@@ -806,7 +806,7 @@ function LivePipeline({
   </div>
 
   <div className="mt-2 text-xs text-muted-foreground">
-    {pipeline?.uploaded_rows} Rows Processed
+    {pipeline?.real_uploaded_rows ?? pipeline?.uploaded_rows} Rows Processed
   </div>
 </div>
           <div className="relative flex flex-wrap items-center justify-between gap-y-8">
