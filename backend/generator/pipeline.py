@@ -185,6 +185,21 @@ def get_snowflake_cursor():
         snowflake_connection = create_snowflake_connection()
         return snowflake_connection.cursor()
 
+def get_real_row_count():
+    """
+    Single source of truth for how many rows actually exist in Snowflake.
+    Every part of the pipeline should use THIS number, never a local counter.
+    """
+    try:
+        cursor = get_snowflake_cursor()
+        cursor.execute("SELECT COUNT(*) FROM RAW_SCHEMA.RAW_SALES_ORDERS")
+        count = cursor.fetchone()[0]
+        cursor.close()
+        return count
+    except Exception as e:
+        print("Failed to fetch real row count:", e)
+        return None
+
 def reset_pipeline_tables():
 
     cursor = get_snowflake_cursor()
@@ -519,20 +534,21 @@ def replay_old_dataset(start_from_index=0):
             # Update Pipeline Status
             # ------------------------------------
 
-            pipeline_state["current_batch"] = batch_number
-
-            pipeline_state["uploaded_rows"] = min(
-                end_index,
-                len(sales_orders_df)
-            )
+            real_total = get_real_row_count()
+            if real_total is not None:
+                pipeline_state["uploaded_rows"] = real_total
+                pipeline_state["current_batch"] = real_total // 10
+            else:
+                pipeline_state["current_batch"] = batch_number
+                pipeline_state["uploaded_rows"] = min(end_index, len(sales_orders_df))
 
             pipeline_state["last_upload"] = datetime.now().strftime("%H:%M:%S")
 
             pipeline_state["last_file"] = file_name
 
             print(
-                f"Batch {batch_number} Uploaded | "
-                f"{pipeline_state['uploaded_rows']} Rows Uploaded"
+                f"[REPLAY] Local batch {batch_number} | "
+                f"Total rows in Snowflake: {real_total}"
             )
 
             add_activity(f"Replay Batch {batch_number} Uploaded")
@@ -1264,11 +1280,16 @@ def run_backfill(s3_client_ref, start_year=2020, end_year=2025, resume_year=None
 
         refresh_analytics()
 
+        real_total = get_real_row_count()
+        if real_total is not None:
+            pipeline_state["uploaded_rows"] = real_total
+            pipeline_state["current_batch"] = real_total // 10
+
         print(
-            f"Batch {batch_no} | "
+            f"[BACKFILL] Local batch {batch_no} | "
             f"{batch_orders[0]['OrderNumber']} -> "
             f"{batch_orders[-1]['OrderNumber']} | "
-            f"{len(batch_orders)} orders"
+            f"Total rows in Snowflake: {real_total}"
         )
 
         total_uploaded += len(batch_orders)
@@ -1372,10 +1393,14 @@ def run_realtime_stream(s3_client_ref, simulate_from=None):
 
                 pipeline_state["powerbi"] = "Healthy"
 
+                real_total = get_real_row_count()
+                if real_total is not None:
+                    pipeline_state["uploaded_rows"] = real_total
+                    pipeline_state["current_batch"] = real_total // 10
+
                 pipeline_state["current_stage"] = "Realtime"
                 pipeline_state["last_upload"] = datetime.now().strftime("%H:%M:%S")
                 pipeline_state["last_file"] = s3_key
-                pipeline_state["uploaded_rows"] += n
                 add_activity(f"Realtime Batch {batch_num} Uploaded")
 
             # Log
