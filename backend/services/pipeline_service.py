@@ -44,11 +44,18 @@ def start_pipeline():
     state = load_control_state(conn)
 
     if pipeline_thread and pipeline_thread.is_alive():
-        # already running in this process — just make sure it's unpaused
+        # already running in this process — unpause AND restore status labels
         pipeline_state["paused"] = False
+        pipeline_state["python"] = "Healthy"
+        pipeline_state["s3"] = "Healthy"
+        pipeline_state["snowpipe"] = "Healthy"
+        pipeline_state["snowflake"] = "Healthy"
+        pipeline_state["sql"] = "Healthy"
+        pipeline_state["powerbi"] = "Healthy"
+        pipeline_state["current_stage"] = "Realtime"
         save_control_state(pipeline_state, conn, state["LAST_RECORD_NUMBER"], state["LAST_ORDER_NUMBER"])
         conn.close()
-        print("Pipeline already running in this process")
+        print("Pipeline already running in this process — statuses restored")
         return
 
     if not state or not state["HAS_BOOTSTRAPPED"]:

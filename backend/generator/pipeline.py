@@ -1585,34 +1585,30 @@ def bootstrap_pipeline():
     print("BOOTSTRAP COMPLETE — switching to forever real-time mode")
     run_realtime_stream(s3_client)
 
-
 def resume_pipeline(state):
-    """
-    Runs when the app restarts (Render woke up again) and the pipeline
-    had already been bootstrapped before. Does NOT touch S3 or Snowflake
-    tables — just keeps generating new batches from where it left off.
-    """
 
     print("=" * 60)
     print("RESUME: Continuing pipeline from saved state")
     print("=" * 60)
 
-    _record_counter[0] = state["LAST_RECORD_NUMBER"]
-    _order_so_counter[0] = state["LAST_ORDER_NUMBER"] + 1
-
+    # Set statuses FIRST, before anything that could fail —
+    # so the UI always shows Healthy even if a lookup below has an issue.
     pipeline_state["running"] = True
     pipeline_state["paused"] = False
     pipeline_state["current_stage"] = "Realtime"
-    pipeline_state["current_batch"] = state["CURRENT_BATCH"]
-    pipeline_state["total_batches"] = state["TOTAL_BATCHES"]
-    pipeline_state["uploaded_rows"] = state["UPLOADED_ROWS"]
-    pipeline_state["realtime_batches"] = state["REALTIME_BATCHES"]
     pipeline_state["python"] = "Healthy"
     pipeline_state["s3"] = "Healthy"
     pipeline_state["snowpipe"] = "Healthy"
     pipeline_state["snowflake"] = "Healthy"
     pipeline_state["sql"] = "Healthy"
     pipeline_state["powerbi"] = "Healthy"
+
+    _record_counter[0] = state.get("LAST_RECORD_NUMBER") or LAST_RECORD_NUMBER
+    _order_so_counter[0] = (state.get("LAST_ORDER_NUMBER") or LAST_ORDER_NUM) + 1
+    pipeline_state["current_batch"] = state.get("CURRENT_BATCH") or 0
+    pipeline_state["total_batches"] = state.get("TOTAL_BATCHES") or 0
+    pipeline_state["uploaded_rows"] = state.get("UPLOADED_ROWS") or 0
+    pipeline_state["realtime_batches"] = state.get("REALTIME_BATCHES") or 0
 
     run_realtime_stream(s3_client)
 

@@ -380,7 +380,7 @@ const loadActivity = async () => {
           { k: "...", v: "Avg Profit Margin" },
         ]
   }
-  batches={pipeline?.total_batches || 0}
+  batches={pipeline?.real_batches ?? pipeline?.total_batches ?? 0}
 />
       <AIInsights insights={insights} />
       <BusinessChallenge />
@@ -786,7 +786,9 @@ function LivePipeline({
       </div>
 
       <div className="text-xl font-semibold text-primary">
-        {pipeline?.real_batches ?? pipeline?.current_batch} / {pipeline?.total_batches}
+        {pipeline?.current_stage === "Realtime"
+          ? `${(pipeline?.real_batches ?? pipeline?.current_batch)?.toLocaleString()} batches`
+          : `${pipeline?.current_batch} / ${pipeline?.total_batches}`}
       </div>
     </div>
 
