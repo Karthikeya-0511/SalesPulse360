@@ -380,7 +380,7 @@ const loadActivity = async () => {
           { k: "...", v: "Avg Profit Margin" },
         ]
   }
-  batches={pipeline?.total_batches || 0}
+  batches={pipeline?.real_batches ?? pipeline?.total_batches ?? 0}
 />
       <AIInsights insights={insights} />
       <BusinessChallenge />
