@@ -782,31 +782,19 @@ function LivePipeline({
 
     <div className="text-right">
       <div className="text-sm text-muted-foreground">
-        Batch Progress
+        Batches Uploaded
       </div>
 
       <div className="text-xl font-semibold text-primary">
-        {pipeline?.current_stage === "Realtime"
-          ? `${(pipeline?.real_batches ?? pipeline?.current_batch)?.toLocaleString()} batches`
-          : `${pipeline?.current_batch} / ${pipeline?.total_batches}`}
+        {(pipeline?.real_batches ?? pipeline?.current_batch ?? 0).toLocaleString()}
       </div>
     </div>
 
   </div>
 
   <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
-    <div
-      className="h-full rounded-full bg-violet-500 transition-all duration-700"
-      style={{
-        width: `${
-          pipeline?.total_batches
-            ? (pipeline.current_batch / pipeline.total_batches) * 100
-            : 0
-        }%`,
-      }}
-    />
+    <div className="h-full w-full animate-pulse rounded-full bg-violet-500" />
   </div>
-
   <div className="mt-2 text-xs text-muted-foreground">
     {pipeline?.real_uploaded_rows ?? pipeline?.uploaded_rows} Rows Processed
   </div>
