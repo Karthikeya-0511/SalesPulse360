@@ -70,3 +70,45 @@ def save_bootstrap_progress(conn, phase, replay_next_index=None, backfill_year=N
         conn.commit()
     finally:
         cursor.close()
+
+def try_acquire_lock(conn, process_id, stale_after_seconds=90):
+    """
+    Only one process may hold this lock at a time. If the current holder's
+    heartbeat is older than `stale_after_seconds`, it's considered dead
+    and can be taken over (e.g. after a crash or Render restart).
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT LOCK_HOLDER, LOCK_HEARTBEAT,
+                   DATEDIFF(SECOND, LOCK_HEARTBEAT, CURRENT_TIMESTAMP()) AS AGE
+            FROM PIPELINE_CONTROL_STATE WHERE ID = 1
+        """)
+        row = cursor.fetchone()
+        holder, heartbeat, age = (row[0], row[1], row[2]) if row else (None, None, None)
+
+        if holder is not None and holder != process_id and age is not None and age < stale_after_seconds:
+            return False  # someone else actively holds it
+
+        cursor.execute("""
+            UPDATE PIPELINE_CONTROL_STATE
+            SET LOCK_HOLDER = %s, LOCK_HEARTBEAT = CURRENT_TIMESTAMP()
+            WHERE ID = 1
+        """, (process_id,))
+        conn.commit()
+        return True
+    finally:
+        cursor.close()
+
+
+def send_heartbeat(conn, process_id):
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE PIPELINE_CONTROL_STATE
+            SET LOCK_HEARTBEAT = CURRENT_TIMESTAMP()
+            WHERE ID = 1 AND LOCK_HOLDER = %s
+        """, (process_id,))
+        conn.commit()
+    finally:
+        cursor.close()

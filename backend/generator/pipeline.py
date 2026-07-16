@@ -5,8 +5,15 @@ import glob
 import os
 
 from services.activity_service import add_activity
-from generator.state_service import save_control_state, load_control_state, mark_bootstrapped, save_bootstrap_progress
+from generator.state_service import (
+    save_control_state, load_control_state, mark_bootstrapped,
+    save_bootstrap_progress, try_acquire_lock, send_heartbeat
+)
 from database import get_connection
+
+import uuid
+PROCESS_ID = str(uuid.uuid4())[:8]
+print(f"This process ID: {PROCESS_ID}")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -557,6 +564,7 @@ def replay_old_dataset(start_from_index=0):
             try:
                 conn = get_connection()
                 save_bootstrap_progress(conn, "REPLAY", replay_next_index=end_index)
+                send_heartbeat(conn, PROCESS_ID)
                 conn.close()
             except Exception as e:
                 print("Failed to save replay checkpoint:", e)
@@ -1254,6 +1262,7 @@ def run_backfill(s3_client_ref, start_year=2020, end_year=2025, resume_year=None
       try:
           conn = get_connection()
           save_bootstrap_progress(conn, "BACKFILL", backfill_year=year, backfill_month=month)
+          send_heartbeat(conn, PROCESS_ID)
           conn.close()
       except Exception as e:
           print("Failed to save backfill checkpoint:", e)
@@ -1421,6 +1430,7 @@ def run_realtime_stream(s3_client_ref, simulate_from=None):
                 try:
                     conn = get_connection()
                     save_control_state(pipeline_state, conn, _record_counter[0], _order_so_counter[0])
+                    send_heartbeat(conn, PROCESS_ID)
                     conn.close()
                 except Exception as e:
                     print("Failed to save control state:", e)
@@ -1533,6 +1543,13 @@ def bootstrap_pipeline():
     print("BOOTSTRAP: Starting or resuming pipeline setup")
     print("=" * 60)
 
+    conn = get_connection()
+    if not try_acquire_lock(conn, PROCESS_ID):
+        print(f"ABORTING — another process already holds the pipeline lock. This process ID: {PROCESS_ID}")
+        conn.close()
+        return
+    conn.close()
+
     pipeline_state["running"] = True
     pipeline_state["python"] = "Running"
 
@@ -1590,6 +1607,7 @@ def bootstrap_pipeline():
         resume_month = state.get("BACKFILL_MONTH") or 1
 
         print(f"PHASE: backfill — resuming from {resume_year}-{resume_month}")
+        pipeline_state["current_stage"] = "Backfill"
         run_backfill(
             s3_client,
             start_year=2020,
@@ -1615,6 +1633,13 @@ def resume_pipeline(state):
     print("=" * 60)
     print("RESUME: Continuing pipeline from saved state")
     print("=" * 60)
+
+    conn = get_connection()
+    if not try_acquire_lock(conn, PROCESS_ID):
+        print(f"ABORTING — another process already holds the pipeline lock. This process ID: {PROCESS_ID}")
+        conn.close()
+        return
+    conn.close()
 
     # Set statuses FIRST, before anything that could fail —
     # so the UI always shows Healthy even if a lookup below has an issue.
