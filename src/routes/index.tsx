@@ -793,7 +793,16 @@ function LivePipeline({
   </div>
 
   <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
-    <div className="h-full w-full animate-pulse rounded-full bg-violet-500" />
+    <div
+      className="h-full rounded-full bg-violet-500 transition-all duration-700"
+      style={{
+        width: `${
+          pipeline?.total_batches
+            ? (pipeline.current_batch / pipeline.total_batches) * 100
+            : 0
+        }%`,
+      }}
+    />
   </div>
   <div className="mt-2 text-xs text-muted-foreground">
     {pipeline?.real_uploaded_rows ?? pipeline?.uploaded_rows} Rows Processed
