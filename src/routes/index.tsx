@@ -381,6 +381,7 @@ const loadActivity = async () => {
         ]
   }
   batches={pipeline?.real_batches ?? pipeline?.total_batches ?? 0}
+  lastRefresh={lastRefresh}
 />
       <AIInsights insights={insights} />
       <BusinessChallenge />
@@ -515,7 +516,7 @@ function AIInsights({
     );
 }
 
-function Hero({ kpis, batches }: { kpis: { k: string; v: string }[]; batches: number }) {
+function Hero({ kpis, batches, lastRefresh }: { kpis: { k: string; v: string }[]; batches: number; lastRefresh: Date }) {
   return (
     <section id="top" className="bg-hero relative overflow-hidden pt-40 pb-28">
       <div className="absolute inset-0 grid-bg opacity-40" />
@@ -533,7 +534,7 @@ function Hero({ kpis, batches }: { kpis: { k: string; v: string }[]; batches: nu
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
             </span>
-            Live · {batches.toLocaleString()} batches streamed
+            Live · {batches.toLocaleString()} batches streamed · as of {lastRefresh.toLocaleTimeString()}
           </div>
 
           <h1 className="mt-6 font-display text-5xl font-semibold leading-[1.05] tracking-tight md:text-7xl">
