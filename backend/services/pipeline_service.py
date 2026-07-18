@@ -22,15 +22,19 @@ def get_pipeline_status():
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM RAW_SCHEMA.RAW_SALES_ORDERS")
         real_row_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(DISTINCT ORDER_NUMBER) FROM RAW_SCHEMA.RAW_SALES_ORDERS")
+        real_order_count = cursor.fetchone()[0]
         cursor.close()
         conn.close()
 
         status["real_uploaded_rows"] = real_row_count
         status["real_batches"] = real_row_count // 10
+        status["real_total_orders"] = real_order_count
     except Exception as e:
         print("Failed to fetch real row count:", e)
         status["real_uploaded_rows"] = None
         status["real_batches"] = None
+        status["real_total_orders"] = None
 
     return status
 

@@ -361,7 +361,7 @@ const loadActivity = async () => {
             v: "Total Revenue",
           },
           {
-            k: kpis.total_orders.toLocaleString(),
+            k: (pipeline?.real_total_orders ?? kpis.total_orders).toLocaleString(),
             v: "Orders Processed",
           },
           {
